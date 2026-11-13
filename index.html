@@ -706,10 +706,14 @@ function posterSVG(){
   const m = s.m, vbW = half ? s.W + 2*m : s.L + 2*m, vbH = half ? s.L/2 + m : s.W + 2*m;
   const cw = half ? Math.min(colW - 120, 560) : colW - 40, chh = cw * vbH / vbW;
   const playersOn = S.playersMode && s.kind === 'team';
-  const plist = t => { const o = {}; focus.filter(p => p.team===t && p.player).forEach(p => { const r = o[p.player] = o[p.player] || {n:0, ok:0}; r.n++; if(p.res==='ok') r.ok++; }); return Object.entries(o).sort((a,b) => b[1].n - a[1].n); };
+  const plist = t => { const o = {}; focus.filter(p => p.team===t && p.player).forEach(p => { const r = o[p.player] = o[p.player] || {n:0, ok:0, ko:0}; r.n++; if(p.res==='ok') r.ok++; if(p.res==='ko') r.ko++; });
+    const l = Object.entries(o).sort((a,b) => b[1].n - a[1].n);
+    const u = focus.filter(p => p.team===t && !p.player);
+    if(l.length && u.length) l.push(['Sans joueur', {n:u.length, ok:u.filter(p=>p.res==='ok').length, ko:u.filter(p=>p.res==='ko').length, none:true}]);
+    return l; };
   const rows = playersOn ? Math.max(plist('A').length, plist('B').length) : 0;
   const yBand = 118, yK = yBand + 72, kH = 200, yC = yK + kH + 24, yS = yC + chh + 26, yP = yS + 96;
-  const H = Math.round(yP + (rows ? 56 + rows*42 : 0) + pad);
+  const H = Math.round(yP + (rows ? 62 + rows*46 : 0) + pad);
   const T = (x, y, txt, sz, o='') => `<text x="${f3(x)}" y="${f3(y)}" font-size="${sz}" ${o}>${esc(txt)}</text>`;
   let g = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${FONT}" preserveAspectRatio="xMidYMid meet">
     <rect width="${W}" height="${H}" fill="#f8fafc"/>
@@ -755,13 +759,19 @@ function posterSVG(){
     // joueurs
     if(rows){
       const pl = plist(t), mx = Math.max(1, ...['A','B'].flatMap(u => plist(u).map(e => e[1].n)));
-      g += T(x0+28, yP+30, 'Par joueur', 20, 'font-weight="700" fill="#6b7280"');
-      const bx = x0 + 160, bw = colW - 160 - 110;
-      pl.forEach(([nm, o], i) => { const y = yP + 52 + i*42;
-        g += T(x0+28, y+22, nm, 21, 'font-weight="600" fill="#111827"')
-          + `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.n/mx)}" height="24" rx="6" fill="${col}" fill-opacity=".28"/>`
-          + (o.ok ? `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.ok/mx)}" height="24" rx="6" fill="${col}"/>` : '')
-          + T(bx + bw*o.n/mx + 10, y+23, `${o.n}${fit && fit.outcome ? ` (${o.ok} ✓)` : ''}`, 19, 'fill="#374151"'); });
+      const out = !!(fit && fit.outcome), light = col + '55';
+      g += T(x0+28, yP+30, 'Par joueur', 22, 'font-weight="700" fill="#374151"');
+      if(out){ const lx = x0 + colW - 28;
+        g += `<rect x="${lx-300}" y="${yP+13}" width="22" height="18" rx="4" fill="${col}"/>` + T(lx-270, yP+29, (fit.ok||'Réussi').toLowerCase(), 19, 'fill="#374151"')
+          + `<rect x="${lx-150}" y="${yP+13}" width="22" height="18" rx="4" fill="${light}"/>` + T(lx-120, yP+29, (fit.ko||'Raté').toLowerCase(), 19, 'fill="#374151"'); }
+      const bx = x0 + 190, bw = colW - 190 - 190;
+      pl.forEach(([nm, o], i) => { const y = yP + 52 + i*46, c = o.none ? '#9ca3af' : col, lc = o.none ? '#d1d5db' : light;
+        const tried = out ? o.ok + o.ko : o.n;
+        const lab = out ? `${o.ok}/${tried}${tried ? ' · ' + Math.round(o.ok/tried*100) + ' %' : ''}` : String(o.n);
+        g += T(x0+28, y+24, nm, 22, `font-weight="${o.none ? 400 : 700}" fill="${o.none ? '#9ca3af' : '#111827'}"${o.none ? ' font-style="italic"' : ''}`)
+          + `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.n/mx)}" height="28" rx="7" fill="${out ? lc : c}"/>`
+          + (out && o.ok ? `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.ok/mx)}" height="28" rx="7" fill="${c}"/>` : '')
+          + T(bx + bw*o.n/mx + 12, y+25, lab, 22, `font-weight="700" fill="${o.none ? '#9ca3af' : '#111827'}"`); });
     }
   });
   return {svg: g + `</svg>`, W, H};
