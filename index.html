@@ -118,6 +118,14 @@ main{flex:1;display:flex;min-height:0}
 #cap img{max-width:100%;max-height:72vh;border-radius:10px;background:#fff;-webkit-touch-callout:default}
 #cap .row{justify-content:center}
 #cap p{color:#e5e7eb;margin:0;font-size:14px;text-align:center}
+.tb.end{background:#f59e0b;color:#111827;font-weight:700}
+#end{position:fixed;inset:0;z-index:15;background:#e5e7eb;display:flex;flex-direction:column}
+#end .endbar{background:#fff;border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+#end .endbar .grp{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#end .endbar .lbl{margin:0 4px 0 0}
+#end .endbar .acts{margin-left:auto;display:flex;gap:6px}
+#end .poster{flex:1;min-height:0;padding:10px;display:flex}
+#end .poster svg{width:100%;height:100%}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 18px;border-radius:999px;font-size:15px;z-index:30;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.show{opacity:1}
 .ping{transform-box:fill-box;transform-origin:center;animation:ping .7s ease-out forwards}
@@ -141,6 +149,7 @@ main{flex:1;display:flex;min-height:0}
 
 <div id="backdrop" class="hidden"></div>
 <div id="popup" class="hidden"></div>
+<div id="end" class="hidden"></div>
 <div id="cap" class="hidden"></div>
 <div id="toast"></div>
 
@@ -176,6 +185,7 @@ const ICON = {
   pin:'<path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/>',
   prof:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
   student:'<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2 9 2 12 0v-5M22 9v5"/>',
+  flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
   x:'<path d="M6 6l12 12M18 6L6 18"/>'
 };
@@ -382,6 +392,7 @@ function renderTop(){
   $('#top').innerHTML = `<span class="tt">${ic(s.icon)}${esc(s.name)}</span>
     <span class="vs"><span class="tA">${esc(S.names.A)}</span> vs <span class="tB">${esc(S.names.B)}</span> · Période ${S.period} · ${S.points.length} action${S.points.length>1?'s':''}</span>
     <button class="tb" data-act="undo">${ic('undo')}Annuler</button>
+    <button class="tb end" data-act="endMatch">${ic('flag')}Fin du match</button>
     <button class="tb cam" data-act="capture">${ic('camera')}Capture</button>`;
 }
 
@@ -536,20 +547,6 @@ function panelProf(){
     ${S.playersMode && pl.length ? `<div class="lbl">Joueur</div><div class="chips">${chip('player','all','Tous')}${pl.map(n => chip('player', n, esc(n))).join('')}</div>` : ''}
     </section>`;
 
-  const pts = filtered();
-  h += `<section><h3>Bilan (${pts.length} action${pts.length>1?'s':''} affichée${pts.length>1?'s':''})</h3>`;
-  ['A','B'].forEach(t => {
-    if(v.team !== 'all' && v.team !== t) return;
-    const st = teamStats(pts, t);
-    h += `<div class="st"><div class="hd"><span class="dot" style="background:${TEAM_COL[t]}"></span>${esc(S.names[t])} — ${st.n}</div>`
-      + (st.items.length ? st.items.map(x => `<div>${itemLine(x)}</div>`).join('') : `<div style="color:var(--mut)">Aucune action</div>`)
-      + (st.out ? `<div style="color:var(--mut)">Hors terrain : ${st.out}</div>` : '')
-      + (st.zone ? `<div class="zn">${ic('pin')} Zone la plus fréquente (moitié visée) : <b>${st.zone.name}</b> — ${st.zone.pct} %</div>` : '')
-      + (st.players && Object.keys(st.players).length ? `<div style="margin-top:4px">` + Object.entries(st.players).sort((a,b)=>b[1].n-a[1].n).map(([n,o]) => `<div>${ic('user')} ${esc(n)} : ${o.n} (✓ ${o.ok})</div>`).join('') + `</div>` : '')
-      + `</div>`;
-  });
-  h += `</section>`;
-
   const last = S.points.slice(-6).reverse();
   if(last.length){
     h += `<section><h3>Dernières saisies</h3>` + last.map(p => { const it = itemById(p.item);
@@ -658,6 +655,16 @@ async function capture(){
     showCap(src, null);
   }
 }
+async function svgToCap(str, W, H){
+  const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str);
+  try{
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const c = cv.getContext('2d'); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.drawImage(img, 0, 0, W, H);
+    cv.toBlob(b => showCap(b ? URL.createObjectURL(b) : cv.toDataURL('image/png'), b), 'image/png');
+  }catch(e){ showCap(src, null); }
+}
 function showCap(url, blob){
   capBlob = blob; if(capURL && capURL.startsWith('blob:')) URL.revokeObjectURL(capURL); capURL = url;
   const canShare = blob && navigator.canShare && navigator.canShare({files:[new File([blob], 'x.png', {type:'image/png'})]});
@@ -669,6 +676,145 @@ function showCap(url, blob){
       <button class="btn" data-act="capClose">Fermer</button>
     </div>`;
   $('#cap').classList.remove('hidden');
+}
+
+/* ---------------- Fin du match : synthèse ---------------- */
+let endSel = {item:null, period:'all'};
+function showEnd(){
+  closePopup();
+  if(endSel.item !== 'all' && !itemById(endSel.item)) endSel.item = (S.items.find(i => i.outcome && i.auto) || S.items[0]).id;
+  if(endSel.period !== 'all' && +endSel.period > S.period) endSel.period = 'all';
+  renderEnd(); $('#end').classList.remove('hidden');
+}
+function renderEnd(){
+  const ch = (k, v, label) => `<button class="chip ${String(endSel[k])===String(v)?'on':''}" data-act="endSel" data-k="${k}" data-v="${v}">${label}</button>`;
+  $('#end').innerHTML = `<div class="endbar">
+      <div class="grp"><span class="lbl">Terrain :</span>${S.items.map(i => ch('item', i.id, `<span class="dot" style="background:${i.color}"></span>${esc(i.name)}`)).join('')}${ch('item','all','Toutes')}</div>
+      ${S.period > 1 ? `<div class="grp"><span class="lbl">Période :</span>${ch('period','all','Tout le match')}${Array.from({length:S.period}, (_,i) => ch('period', i+1, String(i+1))).join('')}</div>` : ''}
+      <div class="acts">
+        <button class="btn prim" data-act="endCap">${ic('camera')}Capture</button>
+        <button class="btn" data-act="endClose">${ic('undo')}Retour au match</button>
+      </div></div>
+    <div class="poster">${posterSVG().svg}</div>`;
+}
+function posterSVG(){
+  const s = sp(), W = 1600, pad = 24, colW = (W - pad*3)/2;
+  const all = S.points.filter(p => itemById(p.item) && (endSel.period==='all' || p.period === +endSel.period));
+  const fit = endSel.item === 'all' ? null : itemById(endSel.item);
+  const focus = fit ? all.filter(p => p.item === fit.id) : all;
+  const half = !!(fit && fit.auto);
+  const m = s.m, vbW = half ? s.W + 2*m : s.L + 2*m, vbH = half ? s.L/2 + m : s.W + 2*m;
+  const cw = half ? Math.min(colW - 120, 560) : colW - 40, chh = cw * vbH / vbW;
+  const playersOn = S.playersMode && s.kind === 'team';
+  const plist = t => { const o = {}; focus.filter(p => p.team===t && p.player).forEach(p => { const r = o[p.player] = o[p.player] || {n:0, ok:0}; r.n++; if(p.res==='ok') r.ok++; }); return Object.entries(o).sort((a,b) => b[1].n - a[1].n); };
+  const rows = playersOn ? Math.max(plist('A').length, plist('B').length) : 0;
+  const yBand = 118, yK = yBand + 72, kH = 200, yC = yK + kH + 24, yS = yC + chh + 26, yP = yS + 96;
+  const H = Math.round(yP + (rows ? 56 + rows*42 : 0) + pad);
+  const T = (x, y, txt, sz, o='') => `<text x="${f3(x)}" y="${f3(y)}" font-size="${sz}" ${o}>${esc(txt)}</text>`;
+  let g = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${FONT}" preserveAspectRatio="xMidYMid meet">
+    <rect width="${W}" height="${H}" fill="#f8fafc"/>
+    <g transform="translate(${pad},26) scale(2.6)" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[s.icon]}</g>
+    ${T(pad+80, 62, 'Bilan du match', 44, 'font-weight="800" fill="#111827"')}
+    ${T(pad+80, 98, `${s.name} · ${S.names.A} vs ${S.names.B} · ${new Date().toLocaleDateString('fr-FR')}${endSel.period!=='all' ? ' · période ' + endSel.period : ''}`, 24, 'fill="#4b5563"')}
+    ${T(W-pad, 62, `Terrain : ${fit ? fit.name : 'toutes les actions'}`, 24, 'text-anchor="end" font-weight="700" fill="#0f766e"')}
+    ${T(W-pad, 98, '● réussi   ✕ raté   ▲ sans résultat', 20, 'text-anchor="end" fill="#6b7280"')}`;
+
+  ['A','B'].forEach((t, k) => {
+    const x0 = pad + k*(colW + pad), col = TEAM_COL[t], tp = all.filter(p => p.team === t), fp = focus.filter(p => p.team === t);
+    g += `<rect x="${x0}" y="${yBand}" width="${colW}" height="${H - yBand - pad}" rx="22" fill="#fff" stroke="#e5e7eb" stroke-width="2"/>
+      <path d="M${x0} ${yBand+22}a22 22 0 0 1 22-22h${colW-44}a22 22 0 0 1 22 22v40h-${colW}z" fill="${col}"/>
+      ${T(x0+28, yBand+44, S.names[t], 32, 'font-weight="800" fill="#fff"')}
+      ${T(x0+colW-28, yBand+44, `${tp.length} action${tp.length>1?'s':''}`, 22, 'text-anchor="end" fill="#fff" opacity=".9"')}`;
+    // tuiles chiffres clés
+    const n = S.items.length, tw = (colW - 32) / n;
+    S.items.forEach((it, i) => {
+      const a = tp.filter(p => p.item === it.id), ok = a.filter(p => p.res==='ok').length, ko = a.filter(p => p.res==='ko').length;
+      const cx = x0 + 16 + tw*i + tw/2, cy = yK + 70;
+      if(it.outcome){
+        const tot = ok + ko, pct = tot ? ok/tot : 0, r = 54, C = 2*Math.PI*r;
+        g += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="16"/>
+          ${tot ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="16" stroke-linecap="round" stroke-dasharray="${f3(C*pct)} ${f3(C)}" transform="rotate(-90 ${cx} ${cy})"/>` : ''}
+          ${T(cx, cy+11, tot ? Math.round(pct*100)+' %' : '–', pct >= 1 ? 28 : 34, 'text-anchor="middle" font-weight="800" fill="#111827"')}
+          ${T(cx, cy+r+40, it.name, 22, 'text-anchor="middle" font-weight="700" fill="#111827"')}
+          ${T(cx, cy+r+66, `${ok} ${it.ok.toLowerCase()} sur ${tot}`, 19, 'text-anchor="middle" fill="#6b7280"')}`;
+      } else {
+        g += `<circle cx="${cx}" cy="${cy}" r="54" fill="${it.color}" fill-opacity=".12"/>
+          ${T(cx, cy+17, a.length, 50, 'text-anchor="middle" font-weight="800" fill="' + it.color + '"')}
+          ${T(cx, cy+94, it.name, 22, 'text-anchor="middle" font-weight="700" fill="#111827"')}`;
+      }
+    });
+    if(n > 1) for(let i=1;i<n;i++) g += `<line x1="${x0+16+tw*i}" y1="${yK+10}" x2="${x0+16+tw*i}" y2="${yK+kH-20}" stroke="#eef0f3" stroke-width="2"/>`;
+    // terrain
+    const cx0 = x0 + (colW - cw)/2;
+    g += miniCourt(t, fp, half, cx0, yC, cw, chh);
+    // phrase clé
+    const z = keyZone(t, fp, half);
+    g += T(x0 + colW/2, yS + 26, 'Zone la plus utilisée', 20, 'text-anchor="middle" fill="#6b7280"');
+    g += z ? T(x0 + colW/2, yS + 66, `${z.name} — ${z.pct} %`, 32, 'text-anchor="middle" font-weight="800" fill="#111827"')
+           : T(x0 + colW/2, yS + 64, 'Pas assez de données', 26, 'text-anchor="middle" fill="#9ca3af"');
+    // joueurs
+    if(rows){
+      const pl = plist(t), mx = Math.max(1, ...['A','B'].flatMap(u => plist(u).map(e => e[1].n)));
+      g += T(x0+28, yP+30, 'Par joueur', 20, 'font-weight="700" fill="#6b7280"');
+      const bx = x0 + 160, bw = colW - 160 - 110;
+      pl.forEach(([nm, o], i) => { const y = yP + 52 + i*42;
+        g += T(x0+28, y+22, nm, 21, 'font-weight="600" fill="#111827"')
+          + `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.n/mx)}" height="24" rx="6" fill="${col}" fill-opacity=".28"/>`
+          + (o.ok ? `<rect x="${bx}" y="${y+4}" width="${f3(bw*o.ok/mx)}" height="24" rx="6" fill="${col}"/>` : '')
+          + T(bx + bw*o.n/mx + 10, y+23, `${o.n}${fit && fit.outcome ? ` (${o.ok} ✓)` : ''}`, 19, 'fill="#374151"'); });
+    }
+  });
+  return {svg: g + `</svg>`, W, H};
+}
+function regionCells(t, half){
+  const s = sp(), cells = [];
+  const x0 = half ? (t==='A' ? s.L/2 : 0) : 0, cols = half ? 3 : 6;
+  for(let ri=0; ri<3; ri++) for(let ci=0; ci<cols; ci++) cells.push({x:x0 + ci*s.L/6, y:ri*s.W/3, w:s.L/6, h:s.W/3, ci, ri});
+  return cells;
+}
+function cellCounts(t, pts, half){
+  const cells = regionCells(t, half);
+  cells.forEach(c => c.n = pts.filter(p => p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h).length);
+  const tot = cells.reduce((a, c) => a + c.n, 0);
+  return {cells, tot, mx: Math.max(1, ...cells.map(c => c.n))};
+}
+function keyZone(t, pts, half){
+  const s = sp(), {cells, tot} = cellCounts(t, pts, half);
+  if(tot < 2) return null;
+  const c = cells.reduce((a, b) => b.n > a.n ? b : a);
+  const tgt = t==='A' ? 'R' : 'L', h = c.x >= s.L/2 - 1e-6 ? 'R' : 'L', ci = Math.round((c.x - (h==='R' ? s.L/2 : 0)) / (s.L/6));
+  const lat = t==='A' ? ['gauche','centre','droite'][c.ri] : ['droite','centre','gauche'][c.ri];
+  return {name: h === tgt ? zoneName(t, {half:h, ci, ri:c.ri}) : `dans son camp · ${lat}`, pct: Math.round(c.n/tot*100)};
+}
+function miniCourt(t, pts, half, X, Y, w, h){
+  const s = sp(), m = s.m, L = s.L, Wd = s.W;
+  let mat, P, vb;
+  if(half){
+    mat = t==='A' ? `matrix(0 -1 1 0 0 ${L})` : `matrix(0 1 -1 0 ${Wd} 0)`;
+    P = t==='A' ? (x, y) => [y, L - x] : (x, y) => [Wd - y, x];
+    vb = [-m, -m, Wd + 2*m, L/2 + m];
+  } else { mat = ''; P = (x, y) => [x, y]; vb = [-m, -m, L + 2*m, Wd + 2*m]; }
+  const k = vb[2] / w;                       // unités terrain par pixel
+  let g = `<svg x="${f3(X)}" y="${f3(Y)}" width="${f3(w)}" height="${f3(h)}" viewBox="${vb.map(f3).join(' ')}" overflow="hidden">
+    <rect x="${f3(vb[0])}" y="${f3(vb[1])}" width="${f3(vb[2])}" height="${f3(vb[3])}" fill="${s.out}"/>
+    <g ${mat ? `transform="${mat}"` : ''}><rect x="0" y="0" width="${L}" height="${Wd}" fill="${s.floor}"/>${s.draw(s)}</g>`;
+  const {cells, tot, mx} = cellCounts(t, pts, half);
+  const labels = [];
+  cells.forEach(c => {
+    const [u1, v1] = P(c.x, c.y), [u2, v2] = P(c.x + c.w, c.y + c.h);
+    const u = Math.min(u1, u2), v = Math.min(v1, v2), cw = Math.abs(u2 - u1), chh = Math.abs(v2 - v1);
+    g += `<rect x="${f3(u)}" y="${f3(v)}" width="${f3(cw)}" height="${f3(chh)}" fill="#f97316" fill-opacity="${tot && c.n ? (0.12 + 0.6*c.n/mx).toFixed(2) : 0}" stroke="#fff" stroke-opacity=".7" stroke-width="${f3(k*1.5)}" stroke-dasharray="${f3(k*6)} ${f3(k*5)}"/>`;
+    if(c.n){ const fs = k*26;
+      labels.push(`<text x="${f3(u + cw/2)}" y="${f3(v + chh/2 + fs*0.35)}" font-size="${f3(fs)}" text-anchor="middle" font-weight="800" fill="#111827" stroke="#fff" stroke-width="${f3(fs*0.18)}" paint-order="stroke">${Math.round(c.n/tot*100)}%</text>`); }
+  });
+  const r = k*9;
+  pts.forEach(p => { const [x, y] = P(p.x, p.y), c = TEAM_COL[p.team];
+    if(p.res==='ok') g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.35)}"/>`;
+    else if(p.res==='ko'){ const q = r*0.85, d = `M${f3(x-q)} ${f3(y-q)}L${f3(x+q)} ${f3(y+q)}M${f3(x+q)} ${f3(y-q)}L${f3(x-q)} ${f3(y+q)}`;
+      g += `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="#fff" stroke-width="${f3(r*0.9)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*0.48)}"/></g>`; }
+    else g += `<polygon points="${f3(x)},${f3(y-r*1.15)} ${f3(x+r)},${f3(y+r*0.75)} ${f3(x-r)},${f3(y+r*0.75)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.3)}"/>`;
+  });
+  return g + labels.join('') + `</svg>`;
 }
 
 /* ---------------- Actions des boutons ---------------- */
@@ -715,6 +861,11 @@ const ACT = {
   toProf(){ if(confirm('Passer en mode prof ?')){ S.mode = 'prof'; save(); showObs(); } },
   settings(){ draft = clone(S); showSetup(); },
   newMatch(){ if(!confirm('Effacer toutes les actions de ce match ?')) return; S.points = []; S.period = 1; S.swapped = false; S.started = Date.now(); S.view.period = 'all'; save(); renderAll(); },
+  // fin du match
+  endMatch(){ showEnd(); },
+  endSel(b, v){ endSel[b.dataset.k] = v; renderEnd(); },
+  endClose(){ $('#end').classList.add('hidden'); },
+  endCap(){ const p = posterSVG(); svgToCap(p.svg, p.W, p.H); },
   // capture
   capture(){ capture(); },
   capClose(){ $('#cap').classList.add('hidden'); },
