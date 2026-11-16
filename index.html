@@ -25,6 +25,7 @@ input,textarea{font:inherit}
 .sport .ic{width:56px;height:56px;border-radius:50%;margin:0 auto 8px;display:flex!important;align-items:center;justify-content:center;background:#f1f5f9;color:#0f766e}
 .sport .ic .i{width:32px;height:32px}
 .sport.on .ic{background:#0f766e;color:#fff}
+#top .dot{box-shadow:0 0 0 2px #9ca3af}
 #top .tt{display:flex;align-items:center;gap:8px}
 #top .tt .i{color:#5eead4}
 
@@ -62,7 +63,11 @@ h3{font-size:16px;margin:16px 0 8px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-size:14px;display:inline-flex;align-items:center;gap:6px}
 .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
-.dot{width:12px;height:12px;border-radius:50%;display:inline-block;flex:none}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block;flex:none;box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.3)}
+.sw{width:34px;height:34px;border-radius:50%;border:2px solid #d1d5db;padding:0}
+.sw.on{outline:3px solid #0f766e;outline-offset:2px}
+.colrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.colrow input[type=color]{width:38px;height:38px;border:none;padding:0;background:none}
 
 /* ---------- Écran d'observation ---------- */
 #obs{position:fixed;inset:0;display:flex;flex-direction:column}
@@ -81,7 +86,7 @@ main{flex:1;display:flex;min-height:0}
 #panel h3{margin:6px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
 .lbl{font-size:13px;color:var(--mut);margin:8px 0 5px}
 .teams{display:flex;gap:6px}
-.teams button{flex:1;border:3px solid transparent;border-radius:12px;padding:10px 6px;color:#fff;font-weight:700;font-size:15px;opacity:.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.teams button{flex:1;border:3px solid rgba(0,0,0,.15);border-radius:12px;padding:10px 6px;color:#fff;font-weight:700;font-size:15px;opacity:.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .teams button.on{opacity:1;border-color:#111}
 .teams.auto button{opacity:.25}
 .note{font-size:12.5px;color:var(--acc);background:#ecfdf5;border-radius:8px;padding:6px 8px;margin-top:6px;line-height:1.35}
@@ -168,7 +173,14 @@ main{flex:1;display:flex;min-height:0}
 
 const APP = 'PlayZone';
 const KEY = 'playzone_v1';
-const TEAM_COL = {A:'#2563eb', B:'#dc2626'};
+const DEF_COL = {A:'#2563eb', B:'#dc2626'};
+const PRESETS = [['Blanc','#ffffff'],['Noir','#111827'],['Bleu','#2563eb'],['Rouge','#dc2626'],['Jaune','#facc15'],['Vert','#16a34a'],['Orange','#f97316'],['Violet','#7c3aed'],['Rose','#ec4899'],['Gris','#6b7280']];
+function lum(c){ const n = parseInt(String(c).replace('#',''), 16) || 0; return (0.299*((n>>16)&255) + 0.587*((n>>8)&255) + 0.114*(n&255)) / 255; }
+const isLight = c => lum(c) > 0.72;
+const ink = c => lum(c) > 0.6 ? '#111827' : '#fff';        // texte lisible sur cette couleur
+const halo = c => lum(c) > 0.55 ? '#111827' : '#fff';       // contour des points
+const chartCol = c => isLight(c) ? '#64748b' : c;           // couleur des graphiques (blanc -> gris)
+const tc = t => (S && S.colors && S.colors[t]) || DEF_COL[t];
 const ICON = {
   logo:'<rect x="2.5" y="5" width="19" height="14" rx="1.5"/><path d="M12 5v14"/><circle cx="16.5" cy="9.5" r="1.4" fill="currentColor"/><circle cx="7.5" cy="14.5" r="1.4" fill="currentColor"/><circle cx="17.5" cy="14" r="1.4" fill="currentColor"/>',
   badminton:'<circle cx="6.5" cy="17.5" r="2.6"/><path d="M8.4 15.6L13 4.5M8.4 15.6l11.1-4.6M8.4 15.6l8.3-8.3M13 4.5c3.2.4 6.1 3.3 6.5 6.5"/>',
@@ -226,7 +238,7 @@ const SPORTS = {
          <circle cx="6.7" cy="-0.4" r="0.1" fill="#111827"/><circle cx="6.7" cy="6.5" r="0.1" fill="#111827"/>`; }
   },
   basket:{
-    name:'Basket-ball', icon:'basket', kind:'team', L:28, W:15, m:1.6, sw:0.07,
+    name:'Basket-ball', icon:'basket', kind:'team', colors:{A:'#ffffff', B:'#111827'}, L:28, W:15, m:1.6, sw:0.07,
     floor:'#d9b07a', out:'#a97c4a', depth:['loin','mi-distance','près du panier'],
     sub:'terrain entier 28 × 15 m',
     items:[
@@ -304,7 +316,7 @@ function defaultState(key, mode){
   const items = sp.items.map(i => ({ok:'Réussi', ko:'Raté', ...i, id:uid()}));
   return {
     sport:key, names:{A: ind?'Joueur 1':'Équipe A', B: ind?'Joueur 2':'Équipe B'},
-    players:{A:[],B:[]}, playersMode:false, items, points:[], swapped:false, period:1,
+    players:{A:[],B:[]}, playersMode:false, items, colors:{...(sp.colors || DEF_COL)}, points:[], swapped:false, period:1,
     mode: mode || 'prof', autoTeam:true, sel:{item:items[0].id, team:'A'},
     view:{team:'all', item:'all', res:'all', player:'all', period:'all', points:true, heat:false, zones:false, colorBy:'team'},
     started: Date.now()
@@ -340,11 +352,13 @@ function renderSetup(){
   if(d){
     const s = SPORTS[d.sport], ind = s.kind === 'indiv', w = ind ? 'Joueur' : 'Équipe';
     h += `<h2>2. ${ind ? 'Joueurs' : 'Équipes'}</h2>
-      <p class="hint">Sur le terrain, <b style="color:${TEAM_COL.A}">le bleu joue de gauche à droite</b>, <b style="color:${TEAM_COL.B}">le rouge de droite à gauche</b>. Un bouton « Changer de côté » permet d'inverser à la mi-temps ou entre deux sets.</p>
+      <p class="hint">Sur le terrain, ${w === 'Joueur' ? 'le joueur 1' : 'l\u2019équipe 1'} joue de gauche à droite, ${w === 'Joueur' ? 'le joueur 2' : 'l\u2019équipe 2'} de droite à gauche. Choisis la couleur de chacun (ex. couleur des chasubles). Un bouton « Changer de côté » permet d'inverser à la mi-temps ou entre deux sets.</p>
       <div class="grid2">` + ['A','B'].map(t => `
-        <div class="tcard" style="border-color:${TEAM_COL[t]}">
-          <label>${w} ${t==='A'?'bleu':'rouge'}</label>
+        <div class="tcard" style="border-color:${d.colors[t]};box-shadow:inset 0 0 0 1px #e5e7eb">
+          <label>${w} ${t==='A'?'1 — joue de gauche à droite':'2 — joue de droite à gauche'}</label>
           <input data-bind="name${t}" value="${esc(d.names[t])}" placeholder="${w} ${t}">
+          <div class="colrow">${PRESETS.map(([n,c]) => `<button class="sw ${d.colors[t].toLowerCase()===c?'on':''}" style="background:${c}" title="${n}" data-act="dColor" data-t="${t}" data-v="${c}"></button>`).join('')}
+            <input type="color" value="${esc(d.colors[t])}" data-bind="color${t}" title="Autre couleur"></div>
           ${!ind && d.playersMode ? `<textarea data-bind="players${t}" placeholder="Un joueur par ligne&#10;ex : 5 Léo&#10;7 Inès">${esc(d.players[t].join('\n'))}</textarea>` : ''}
         </div>`).join('') + `</div>`;
     if(!ind){
@@ -380,6 +394,7 @@ $('#setup').addEventListener('input', e => {
   const t = e.target, b = t.dataset.bind;
   if(b){
     if(b.startsWith('name')) draft.names[b.slice(4)] = t.value;
+    if(b.startsWith('color')){ draft.colors[b.slice(5)] = t.value; return; }
     if(b.startsWith('players')) draft.players[b.slice(7)] = t.value.split('\n').map(x=>x.trim()).filter(Boolean);
     return;
   }
@@ -399,10 +414,10 @@ function renderTop(){
   document.body.classList.toggle('collapsed', !!S.panelHidden);
   const it = itemById(S.sel.item), auto = it && it.auto && S.autoTeam;
   const mini = `<div class="mini">` + S.items.map(i => `<button class="${i.id===S.sel.item?'on':''}" style="background:${i.color}" data-act="selItem" data-v="${i.id}">${esc(i.name)}</button>`).join('')
-    + (auto ? '' : `<span class="sep"></span>` + ['A','B'].map(t => `<button class="${S.sel.team===t?'on':''}" style="background:${TEAM_COL[t]}" data-act="selTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('')) + `</div>`;
+    + (auto ? '' : `<span class="sep"></span>` + ['A','B'].map(t => `<button class="${S.sel.team===t?'on':''}" style="background:${tc(t)};color:${ink(tc(t))}" data-act="selTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('')) + `</div>`;
   $('#top').innerHTML = `<button class="tb" data-act="togglePanel" title="${S.panelHidden ? 'Afficher le panneau' : 'Masquer le panneau'}">${ic(S.panelHidden ? 'panelOff' : 'panel')}</button>
     <span class="tt">${ic(s.icon)}${S.panelHidden ? '' : esc(s.name)}</span>
-    ${S.panelHidden ? mini : `<span class="vs"><span class="tA">${esc(S.names.A)}</span> vs <span class="tB">${esc(S.names.B)}</span> · Période ${S.period} · ${S.points.length} action${S.points.length>1?'s':''}</span>`}
+    ${S.panelHidden ? mini : `<span class="vs"><span class="dot" style="background:${tc('A')}"></span> <b>${esc(S.names.A)}</b> vs <span class="dot" style="background:${tc('B')}"></span> <b>${esc(S.names.B)}</b> · Période ${S.period} · ${S.points.length} action${S.points.length>1?'s':''}</span>`}
     <button class="tb" data-act="undo">${ic('undo')}Annuler</button>
     <button class="tb end" data-act="endMatch">${ic('flag')}Fin du match</button>
     <button class="tb cam" data-act="capture">${ic('camera')}Capture</button>`;
@@ -418,7 +433,7 @@ function filtered(){
       && (v.period==='all' || p.period===+v.period);
   });
 }
-function ptColor(p){ return (S.mode==='prof' && S.view.colorBy==='item') ? itemById(p.item).color : TEAM_COL[p.team]; }
+function ptColor(p){ return (S.mode==='prof' && S.view.colorBy==='item') ? itemById(p.item).color : tc(p.team); }
 
 function renderCourt(){
   const s = sp(), svg = $('#court'), m = s.m;
@@ -428,7 +443,7 @@ function renderCourt(){
   let h = `<defs><filter id="blur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${f3(s.L*0.02)}"/></filter></defs>
     <rect x="${-m}" y="${-m}" width="${s.L+2*m}" height="${s.W+2*m}" fill="${s.out}"/>
     <rect x="0" y="0" width="${s.L}" height="${s.W}" fill="${s.floor}"/>` + s.draw(s);
-  const lab = (x, txt, t) => `<text x="${x}" y="${f3(-m/2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT}" font-weight="700" font-size="${f3(fs)}" fill="${TEAM_COL[t]}" stroke="#fff" stroke-width="${f3(fs*0.22)}" paint-order="stroke">${esc(txt)}</text>`;
+  const lab = (x, txt, t) => `<text x="${x}" y="${f3(-m/2)}" text-anchor="middle" dominant-baseline="middle" font-family="${FONT}" font-weight="700" font-size="${f3(fs)}" fill="${tc(t)}" stroke="${halo(tc(t))}" stroke-width="${f3(fs*0.22)}" paint-order="stroke">${esc(txt)}</text>`;
   h += lab(s.L/4, `${S.names[left]}  ▶`, left) + lab(3*s.L/4, `◀  ${S.names[right]}`, right);
   const pts = filtered();
   if(S.mode==='prof' && S.view.zones) h += zonesLayer(pts);
@@ -442,10 +457,10 @@ function pointsLayer(pts){
   const s = sp(), r = s.L*0.012;
   return `<g>` + pts.map(p => {
     const [x, y] = flip(p.x, p.y), c = ptColor(p);
-    if(p.res === 'ok') return `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.35)}"/>`;
+    if(p.res === 'ok') return `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="${halo(c)}" stroke-width="${f3(r*0.35)}"/>`;
     if(p.res === 'ko'){ const k = r*0.85, d = `M${f3(x-k)} ${f3(y-k)}L${f3(x+k)} ${f3(y+k)}M${f3(x+k)} ${f3(y-k)}L${f3(x-k)} ${f3(y+k)}`;
-      return `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="#fff" stroke-width="${f3(r*0.9)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*0.48)}"/></g>`; }
-    return `<polygon points="${f3(x)},${f3(y-r*1.15)} ${f3(x+r)},${f3(y+r*0.75)} ${f3(x-r)},${f3(y+r*0.75)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.3)}" stroke-linejoin="round"/>`;
+      return `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="${halo(c)}" stroke-width="${f3(r*0.9)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*(isLight(c) ? 0.66 : 0.48))}"/></g>`; }
+    return `<polygon points="${f3(x)},${f3(y-r*1.15)} ${f3(x+r)},${f3(y+r*0.75)} ${f3(x-r)},${f3(y+r*0.75)}" fill="${c}" stroke="${halo(c)}" stroke-width="${f3(r*0.3)}" stroke-linejoin="round"/>`;
   }).join('') + `</g>`;
 }
 function heatLayer(pts){
@@ -510,7 +525,7 @@ function renderPanel(){ $('#panel').innerHTML = S.mode === 'eleve' ? panelEleve(
 function teamButtons(big){
   const it = itemById(S.sel.item), auto = it && it.auto && S.autoTeam;
   return `<div class="teams ${auto?'auto':''}">` + ['A','B'].map(t =>
-    `<button class="${S.sel.team===t && !auto ? 'on':''}" style="background:${TEAM_COL[t]}" data-act="selTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('') + `</div>`
+    `<button class="${S.sel.team===t && !auto ? 'on':''}" style="background:${tc(t)};color:${ink(tc(t))}" data-act="selTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('') + `</div>`
     + (auto ? `<div class="note">${big ? `Pas besoin de choisir : ${word()==='Joueur'?'le joueur est trouvé':'l’équipe est trouvée'} selon le côté où tu touches le terrain.` : `Déduit${word()==='Joueur'?'':'e'} automatiquement du côté touché. Corrigeable dans la fenêtre de saisie.`}</div>` : '');
 }
 
@@ -523,7 +538,7 @@ function panelEleve(){
   if(it){
     const pts = S.points.filter(p => p.item === it.id);
     h += `<div class="cnt">` + ['A','B'].map(t => { const a = pts.filter(p => p.team===t), ok = a.filter(p=>p.res==='ok').length;
-      return `<div><span class="dot" style="background:${TEAM_COL[t]}"></span> ${esc(S.names[t])} : <b>${a.length}</b>${it.outcome ? ` (✓ ${ok})` : ''}</div>`; }).join('') + `</div>`;
+      return `<div><span class="dot" style="background:${tc(t)}"></span> ${esc(S.names[t])} : <b>${a.length}</b>${it.outcome ? ` (✓ ${ok})` : ''}</div>`; }).join('') + `</div>`;
   }
   h += `<button class="btn" style="width:100%;padding:14px;font-size:16px" data-act="undo">${ic('undo')}Annuler le dernier</button>
     <div class="row"><button class="btn" data-act="toProf">${ic('lock')}Mode prof</button></div>`;
@@ -552,7 +567,7 @@ function panelProf(){
 
   const pl = [...new Set((v.team==='all' ? [...S.players.A, ...S.players.B] : S.players[v.team]) || [])];
   h += `<section><h3>Filtres</h3>
-    <div class="lbl">${w}</div><div class="chips">${chip('team','all','Tous')}${['A','B'].map(t => chip('team', t, esc(S.names[t]), `<span class="dot" style="background:${TEAM_COL[t]}"></span>`)).join('')}</div>
+    <div class="lbl">${w}</div><div class="chips">${chip('team','all','Tous')}${['A','B'].map(t => chip('team', t, esc(S.names[t]), `<span class="dot" style="background:${tc(t)}"></span>`)).join('')}</div>
     <div class="lbl">Action</div><div class="chips">${chip('item','all','Toutes')}${S.items.map(i => chip('item', i.id, esc(i.name), `<span class="dot" style="background:${i.color}"></span>`)).join('')}</div>
     <div class="lbl">Résultat</div><div class="chips">${chip('res','all','Tous')}${chip('res','ok','✓ Réussi')}${chip('res','ko','✗ Raté')}</div>
     ${S.period > 1 ? `<div class="lbl">Période</div><div class="chips">${chip('period','all','Toutes')}${Array.from({length:S.period}, (_,i) => chip('period', String(i+1), String(i+1))).join('')}</div>` : ''}
@@ -562,7 +577,7 @@ function panelProf(){
   const last = S.points.slice(-6).reverse();
   if(last.length){
     h += `<section><h3>Dernières saisies</h3>` + last.map(p => { const it = itemById(p.item);
-      return `<div class="li"><span class="dot" style="background:${TEAM_COL[p.team]}"></span><span class="t">${esc(it ? it.name : '?')} ${p.res==='ok'?'✓':p.res==='ko'?'✗':''} · ${esc(S.names[p.team])}${p.player ? ' · '+esc(p.player) : ''}</span><button data-act="del" data-v="${p.id}">✕</button></div>`; }).join('') + `</section>`;
+      return `<div class="li"><span class="dot" style="background:${tc(p.team)}"></span><span class="t">${esc(it ? it.name : '?')} ${p.res==='ok'?'✓':p.res==='ko'?'✗':''} · ${esc(S.names[p.team])}${p.player ? ' · '+esc(p.player) : ''}</span><button data-act="del" data-v="${p.id}">✕</button></div>`; }).join('') + `</section>`;
   }
 
   h += `<section style="border:none"><div class="row">
@@ -605,7 +620,7 @@ function openPopup(e, point){
 }
 function renderPopup(){
   const it = itemById(pending.item), t = pending.team, pl = popupPlayers();
-  let h = `<div class="ph"><b>${esc(it.name)}</b><button class="tchip" style="background:${TEAM_COL[t]}" data-act="pSwap">${esc(S.names[t])} ${ic('swap')}</button></div>`;
+  let h = `<div class="ph"><b>${esc(it.name)}</b><button class="tchip" style="background:${tc(t)};color:${ink(tc(t))};box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.25)" data-act="pSwap">${esc(S.names[t])} ${ic('swap')}</button></div>`;
   if(pl.length) h += `<div class="pl">` + pl.map(n => `<button class="pchip ${pending.player===n?'on':''}" data-act="pPlayer" data-v="${esc(n)}">${esc(n)}</button>`).join('') + `</div>`;
   if(it.outcome) h += `<div class="okko"><button class="ok" data-act="pRes" data-v="ok">${ic('check')}${esc(it.ok||'Réussi')}</button><button class="ko" data-act="pRes" data-v="ko">${ic('x')}${esc(it.ko||'Raté')}</button></div>`;
   else if(pl.length) h += `<button class="nopl" data-act="pRes" data-v="">Valider sans joueur</button>`;
@@ -615,7 +630,7 @@ function renderPopup(){
 function renderPending(){
   const g = $('#pendingL'); if(!g || !pending) return;
   const [x, y] = flip(pending.x, pending.y), r = sp().L*0.012;
-  g.innerHTML = `<circle class="pend" cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.3)}" fill="${TEAM_COL[pending.team]}" stroke="#fff" stroke-width="${f3(r*0.4)}"/>`;
+  g.innerHTML = `<circle class="pend" cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.3)}" fill="${tc(pending.team)}" stroke="${halo(tc(pending.team))}" stroke-width="${f3(r*0.4)}"/>`;
 }
 function closePopup(){ pending = null; $('#popup').classList.add('hidden'); $('#backdrop').classList.add('hidden'); const g = $('#pendingL'); if(g) g.innerHTML = ''; }
 $('#backdrop').addEventListener('click', closePopup);
@@ -659,7 +674,7 @@ async function capture(){
     c.drawImage(img, 0, head, W, H);
     let y = head + H + 56;
     c.font = `28px ${FONT}`;
-    lines.forEach(l => { c.fillStyle = TEAM_COL[l.t]; c.fillRect(32, y-22, 26, 26); c.fillStyle = '#111827';
+    lines.forEach(l => { c.fillStyle = tc(l.t); c.fillRect(32, y-22, 26, 26); c.strokeStyle = '#9ca3af'; c.lineWidth = 2; c.strokeRect(32, y-22, 26, 26); c.fillStyle = '#111827';
       c.fillText(l.txt, 72, y, W - 100); y += lh; });
     c.fillStyle = '#6b7280'; c.font = `24px ${FONT}`; c.fillText('● réussi    ✕ raté    ▲ action sans résultat', 32, y + 6);
     cv.toBlob(b => showCap(b ? URL.createObjectURL(b) : cv.toDataURL('image/png'), b), 'image/png');
@@ -736,11 +751,11 @@ function posterSVG(){
     ${T(W-pad, 98, '● réussi   ✕ raté   ▲ sans résultat', 20, 'text-anchor="end" fill="#6b7280"')}`;
 
   ['A','B'].forEach((t, k) => {
-    const x0 = pad + k*(colW + pad), col = TEAM_COL[t], tp = all.filter(p => p.team === t), fp = focus.filter(p => p.team === t);
+    const x0 = pad + k*(colW + pad), col = tc(t), cc = chartCol(col), tp = all.filter(p => p.team === t), fp = focus.filter(p => p.team === t);
     g += `<rect x="${x0}" y="${yBand}" width="${colW}" height="${H - yBand - pad}" rx="22" fill="#fff" stroke="#e5e7eb" stroke-width="2"/>
-      <path d="M${x0} ${yBand+22}a22 22 0 0 1 22-22h${colW-44}a22 22 0 0 1 22 22v40h-${colW}z" fill="${col}"/>
-      ${T(x0+28, yBand+44, S.names[t], 32, 'font-weight="800" fill="#fff"')}
-      ${T(x0+colW-28, yBand+44, `${tp.length} action${tp.length>1?'s':''}`, 22, 'text-anchor="end" fill="#fff" opacity=".9"')}`;
+      <path d="M${x0} ${yBand+22}a22 22 0 0 1 22-22h${colW-44}a22 22 0 0 1 22 22v40h-${colW}z" fill="${col}"${isLight(col) ? ' stroke="#111827" stroke-width="2"' : ''}/>
+      ${T(x0+28, yBand+44, S.names[t], 32, `font-weight="800" fill="${ink(col)}"`)}
+      ${T(x0+colW-28, yBand+44, `${tp.length} action${tp.length>1?'s':''}`, 22, `text-anchor="end" fill="${ink(col)}" opacity=".9"`)}`;
     // tuiles chiffres clés
     const n = S.items.length, tw = (colW - 32) / n;
     S.items.forEach((it, i) => {
@@ -749,7 +764,7 @@ function posterSVG(){
       if(it.outcome){
         const tot = ok + ko, pct = tot ? ok/tot : 0, r = 54, C = 2*Math.PI*r;
         g += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="16"/>
-          ${tot ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="16" stroke-linecap="round" stroke-dasharray="${f3(C*pct)} ${f3(C)}" transform="rotate(-90 ${cx} ${cy})"/>` : ''}
+          ${tot ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${cc}" stroke-width="16" stroke-linecap="round" stroke-dasharray="${f3(C*pct)} ${f3(C)}" transform="rotate(-90 ${cx} ${cy})"/>` : ''}
           ${T(cx, cy+11, tot ? Math.round(pct*100)+' %' : '–', pct >= 1 ? 28 : 34, 'text-anchor="middle" font-weight="800" fill="#111827"')}
           ${T(cx, cy+r+40, it.name, 22, 'text-anchor="middle" font-weight="700" fill="#111827"')}
           ${T(cx, cy+r+66, `${ok} ${it.ok.toLowerCase()} sur ${tot}`, 19, 'text-anchor="middle" fill="#6b7280"')}`;
@@ -771,13 +786,13 @@ function posterSVG(){
     // joueurs
     if(rows){
       const pl = plist(t), mx = Math.max(1, ...['A','B'].flatMap(u => plist(u).map(e => e[1].n)));
-      const out = !!(fit && fit.outcome), light = col + '55';
+      const out = !!(fit && fit.outcome), light = cc + '55';
       g += T(x0+28, yP+30, 'Par joueur', 22, 'font-weight="700" fill="#374151"');
       if(out){ const lx = x0 + colW - 28;
-        g += `<rect x="${lx-300}" y="${yP+13}" width="22" height="18" rx="4" fill="${col}"/>` + T(lx-270, yP+29, (fit.ok||'Réussi').toLowerCase(), 19, 'fill="#374151"')
+        g += `<rect x="${lx-300}" y="${yP+13}" width="22" height="18" rx="4" fill="${cc}"/>` + T(lx-270, yP+29, (fit.ok||'Réussi').toLowerCase(), 19, 'fill="#374151"')
           + `<rect x="${lx-150}" y="${yP+13}" width="22" height="18" rx="4" fill="${light}"/>` + T(lx-120, yP+29, (fit.ko||'Raté').toLowerCase(), 19, 'fill="#374151"'); }
       const bx = x0 + 190, bw = colW - 190 - 190;
-      pl.forEach(([nm, o], i) => { const y = yP + 52 + i*46, c = o.none ? '#9ca3af' : col, lc = o.none ? '#d1d5db' : light;
+      pl.forEach(([nm, o], i) => { const y = yP + 52 + i*46, c = o.none ? '#9ca3af' : cc, lc = o.none ? '#d1d5db' : light;
         const tried = out ? o.ok + o.ko : o.n;
         const lab = out ? `${o.ok}/${tried}${tried ? ' · ' + Math.round(o.ok/tried*100) + ' %' : ''}` : String(o.n);
         g += T(x0+28, y+24, nm, 22, `font-weight="${o.none ? 400 : 700}" fill="${o.none ? '#9ca3af' : '#111827'}"${o.none ? ' font-style="italic"' : ''}`)
@@ -830,11 +845,11 @@ function miniCourt(t, pts, half, X, Y, w, h){
       labels.push(`<text x="${f3(u + cw/2)}" y="${f3(v + chh/2 + fs*0.35)}" font-size="${f3(fs)}" text-anchor="middle" font-weight="800" fill="#111827" stroke="#fff" stroke-width="${f3(fs*0.18)}" paint-order="stroke">${Math.round(c.n/tot*100)}%</text>`); }
   });
   const r = k*9;
-  pts.forEach(p => { const [x, y] = P(p.x, p.y), c = TEAM_COL[p.team];
-    if(p.res==='ok') g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.35)}"/>`;
+  pts.forEach(p => { const [x, y] = P(p.x, p.y), c = tc(p.team);
+    if(p.res==='ok') g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="${halo(c)}" stroke-width="${f3(r*0.35)}"/>`;
     else if(p.res==='ko'){ const q = r*0.85, d = `M${f3(x-q)} ${f3(y-q)}L${f3(x+q)} ${f3(y+q)}M${f3(x+q)} ${f3(y-q)}L${f3(x-q)} ${f3(y+q)}`;
-      g += `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="#fff" stroke-width="${f3(r*0.9)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*0.48)}"/></g>`; }
-    else g += `<polygon points="${f3(x)},${f3(y-r*1.15)} ${f3(x+r)},${f3(y+r*0.75)} ${f3(x-r)},${f3(y+r*0.75)}" fill="${c}" stroke="#fff" stroke-width="${f3(r*0.3)}"/>`;
+      g += `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="${halo(c)}" stroke-width="${f3(r*0.9)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*(isLight(c) ? 0.66 : 0.48))}"/></g>`; }
+    else g += `<polygon points="${f3(x)},${f3(y-r*1.15)} ${f3(x+r)},${f3(y+r*0.75)} ${f3(x-r)},${f3(y+r*0.75)}" fill="${c}" stroke="${halo(c)}" stroke-width="${f3(r*0.3)}"/>`;
   });
   return g + labels.join('') + `</svg>`;
 }
@@ -845,6 +860,7 @@ const ACT = {
   resume(){ draft = null; showObs(); },
   pickSport(b, v){ if(draft && draft.sport === v) return; draft = defaultState(v, draft ? draft.mode : 'prof'); renderSetup(); },
   dTog(b){ draft[b.dataset.k] = !draft[b.dataset.k]; renderSetup(); },
+  dColor(b, v){ draft.colors[b.dataset.t] = v; renderSetup(); },
   dMode(b, v){ draft.mode = v; renderSetup(); },
   itTog(b){ const it = draft.items.find(i => i.id === b.dataset.id); it[b.dataset.k] = !it[b.dataset.k]; renderSetup(); },
   delItem(b){ if(draft.items.length <= 1){ toast('Il faut au moins une action'); return; } draft.items = draft.items.filter(i => i.id !== b.dataset.id); renderSetup(); },
@@ -882,7 +898,7 @@ const ACT = {
   // modes
   toEleve(){ S.mode = 'eleve'; save(); showObs(); },
   toProf(){ if(confirm('Passer en mode prof ?')){ S.mode = 'prof'; save(); showObs(); } },
-  settings(){ draft = clone(S); showSetup(); },
+  settings(){ draft = clone(S); draft.colors = draft.colors || {...DEF_COL}; showSetup(); },
   newMatch(){ if(!confirm('Effacer toutes les actions de ce match ?')) return; S.points = []; S.period = 1; S.swapped = false; S.started = Date.now(); S.view.period = 'all'; save(); renderAll(); },
   // fin du match
   endMatch(){ showEnd(); },
