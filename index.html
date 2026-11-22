@@ -151,8 +151,7 @@ main{flex:1;display:flex;min-height:0}
 #pbar .pcnt{color:#fff;text-align:center;min-width:84px;line-height:1.05}
 #pbar .pcnt b{font-size:32px;display:block}
 #pbar .pcnt small{font-size:12px;color:#9ca3af}
-#pbar .pdrib{background:#374151}
-#pbar .pdrib.on{background:#f59e0b;color:#111827}
+#pbar .phint{color:#9ca3af;font-size:14px;line-height:1.3;padding:0 6px}#pbar .phint b{color:#fff}
 #pbar .pok{background:#16a34a}#pbar .pko{background:#dc2626}#pbar .ploss{background:#7c3aed}
 .okko .lo{background:#7c3aed}
 @media (max-width:900px){.sports{grid-template-columns:repeat(3,1fr)}#panel{width:280px}}
@@ -352,94 +351,117 @@ const word = () => sp().kind === 'indiv' ? 'Joueur' : 'Équipe';
 // conversion repère canonique (A joue vers la droite) <-> affichage (rotation 180° après changement de côté)
 function flip(x, y){ const s = sp(); return S.swapped ? [s.L - x, s.W - y] : [x, y]; }
 
-/* ---------------- Possessions & passes ---------------- */
+/* ---------------- Possessions : occupation de l'espace ---------------- */
+// 1 tap = une croix là où va le ballon (passe ou dribble, peu importe) · double-tap = tir · bouton Perte
 const hasPoss = () => !!sp().poss;
 const isPoss = () => hasPoss() && S.obsMode === 'poss';
 const lossItem = () => S.items.find(i => i.loss) || S.items.find(i => /perd|perte/i.test(i.name));
 const shotItem = () => S.items.find(i => i.outcome && i.auto) || S.items.find(i => i.outcome);
 const other = t => t === 'A' ? 'B' : 'A';
-const nPass = p => p.pts.filter(q => q.k === 'p').length;
 const dec = x => x.toFixed(1).replace('.', ',');
 const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
+let lastTap = null;
 function laneOf(y, team){ const W = sp().W, r = y < W/3 ? 0 : y < 2*W/3 ? 1 : 2; return team === 'A' ? r : 2 - r; }  // 0 gauche, 1 axe, 2 droite (vu de l'attaquant)
+const attHalf = t => t === 'A' ? 'R' : 'L';
+function attPts(p){ const h = attHalf(p.team); return p.pts.filter(q => { const z = zoneOf(q); return z && z.half === h; }); }
+function nSect(p){ return new Set(attPts(p).map(q => { const z = zoneOf(q); return z.ci + ',' + z.ri; })).size; }
+function hullArea(pts){
+  const P = pts.map(q => [q.x, q.y]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if(P.length < 3) return 0;
+  const cr = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lo = [], up = [];
+  for(const p of P){ while(lo.length >= 2 && cr(lo[lo.length-2], lo[lo.length-1], p) <= 0) lo.pop(); lo.push(p); }
+  for(const p of P.slice().reverse()){ while(up.length >= 2 && cr(up[up.length-2], up[up.length-1], p) <= 0) up.pop(); up.push(p); }
+  const h = lo.slice(0, -1).concat(up.slice(0, -1));
+  let a = 0; for(let i = 0; i < h.length; i++){ const [x1, y1] = h[i], [x2, y2] = h[(i+1) % h.length]; a += x1*y2 - x2*y1; }
+  return Math.abs(a) / 2;
+}
 function possFiltered(){
   const v = S.view;
   return S.poss.filter(p => S.mode === 'eleve' || ((v.team==='all' || p.team===v.team) && (v.period==='all' || p.period===+v.period)));
 }
 function possStats(list, t){
-  const ps = list.filter(p => p.team === t && p.end), n = ps.length;
-  const tot = ps.reduce((a, p) => a + nPass(p), 0);
-  const lanes = [0,0,0]; let nl = 0, wide = 0;
-  ps.forEach(p => { const seen = new Set();
-    p.pts.forEach(q => { if(q.k === 's') return; const l = laneOf(q.y, t); lanes[l]++; nl++; seen.add(l); });
-    if(seen.has(0) && seen.has(2)) wide++; });
-  const bk = [0,1,2,3,4].map(i => ({lab: i === 4 ? '4+' : String(i), n:0, ok:0, ko:0, perte:0}));
-  ps.forEach(p => { const b = bk[Math.min(4, nPass(p))]; b.n++; b[p.end]++; });
-  return {n, avg: n ? tot/n : 0, ok: ps.filter(p => p.end==='ok').length, ko: ps.filter(p => p.end==='ko').length,
+  const s = sp(), ps = list.filter(p => p.team === t && p.end), n = ps.length;
+  const lanes = [0,0,0]; let nl = 0, wide = 0, sec = 0, surf = 0;
+  ps.forEach(p => { const seen = new Set(), ap = attPts(p);
+    ap.forEach(q => { const l = laneOf(q.y, t); lanes[l]++; nl++; seen.add(l); });
+    if(seen.has(0) && seen.has(2)) wide++;
+    sec += nSect(p); surf += hullArea(ap); });
+  const bk = ['0–1','2','3','4','5+'].map(lab => ({lab, n:0, ok:0, ko:0, perte:0}));
+  ps.forEach(p => { const b = bk[Math.min(4, Math.max(0, nSect(p) - 1))]; b.n++; b[p.end]++; });
+  const halfA = s.L/2 * s.W;
+  return {n, ok: ps.filter(p => p.end==='ok').length, ko: ps.filter(p => p.end==='ko').length,
     perte: ps.filter(p => p.end==='perte').length, lanes: lanes.map(v => nl ? Math.round(v/nl*100) : 0), nl,
-    wide: n ? Math.round(wide/n*100) : 0, bk};
+    wide: n ? Math.round(wide/n*100) : 0, sec: n ? sec/n : 0, surf: n ? surf/n : 0, surfPct: n ? Math.round(surf/n/halfA*100) : 0, bk};
 }
-const markerDef = (id, c) => `<marker id="${id}" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3.2" markerHeight="3.2" orient="auto" markerUnits="strokeWidth"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`;
+const markerDef = () => '';
 function lanesSVG(sw){
   const s = sp(), a = s.W/3;
   return `<rect x="0" y="${f3(a)}" width="${s.L}" height="${f3(a)}" fill="#facc15" fill-opacity=".14"/>
     <g stroke="#fff" stroke-opacity=".65" stroke-width="${f3(sw)}" stroke-dasharray="${f3(sw*4)} ${f3(sw*3)}">
     <line x1="0" y1="${f3(a)}" x2="${s.L}" y2="${f3(a)}"/><line x1="0" y1="${f3(2*a)}" x2="${s.L}" y2="${f3(2*a)}"/></g>`;
 }
+function crossMark(x, y, c, r){
+  const k = r*0.8, d = `M${f3(x-k)} ${f3(y-k)}L${f3(x+k)} ${f3(y+k)}M${f3(x+k)} ${f3(y-k)}L${f3(x-k)} ${f3(y+k)}`;
+  return `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="${halo(c)}" stroke-width="${f3(r*0.8)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*(isLight(c) ? 0.5 : 0.4))}"/></g>`;
+}
 function endMark(x, y, res, c, r){
   const hc = halo(c);
-  if(res === 'ok') return `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.25)}" fill="${c}" stroke="${hc}" stroke-width="${f3(r*0.4)}"/>`;
-  if(res === 'ko'){ const k = r, d = `M${f3(x-k)} ${f3(y-k)}L${f3(x+k)} ${f3(y+k)}M${f3(x+k)} ${f3(y-k)}L${f3(x-k)} ${f3(y+k)}`;
-    return `<g stroke-linecap="round" fill="none"><path d="${d}" stroke="${hc}" stroke-width="${f3(r*0.95)}"/><path d="${d}" stroke="${c}" stroke-width="${f3(r*(isLight(c) ? 0.66 : 0.5))}"/></g>`; }
+  if(res === 'ok') return `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.3)}" fill="${c}" stroke="${hc}" stroke-width="${f3(r*0.4)}"/>`;
+  if(res === 'ko') return `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.15)}" fill="none" stroke="${hc}" stroke-width="${f3(r*0.75)}"/><circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.15)}" fill="none" stroke="${c}" stroke-width="${f3(r*0.42)}"/>`;
   if(res === 'perte'){ const k = r*1.45; return `<polygon points="${f3(x)},${f3(y-k)} ${f3(x+k)},${f3(y)} ${f3(x)},${f3(y+k)} ${f3(x-k)},${f3(y)}" fill="${c}" stroke="${hc}" stroke-width="${f3(r*0.35)}" stroke-linejoin="round"/>`; }
   return '';
 }
-// o = {P: conversion -> affichage, r, sw, op, num, ns}
+// o = {P: conversion -> affichage, r, sw, op, live}
 function trailSVG(p, o){
-  const c = tc(p.team), hc = halo(c), pts = p.pts.map(q => o.P(q.x, q.y)), r = o.r, sw = o.sw, mk = `ar${o.ns}${p.team}`;
+  const c = tc(p.team), hc = halo(c), pts = p.pts.map(q => o.P(q.x, q.y)), r = o.r, sw = o.sw;
   let g = `<g opacity="${o.op}">`;
-  for(let i = 1; i < pts.length; i++){
-    const [x1, y1] = pts[i-1], [x2, y2] = pts[i], dx = x2-x1, dy = y2-y1, d = Math.hypot(dx, dy) || 1, sh = Math.min(r*1.25, d/2);
-    const ln = `x1="${f3(x1)}" y1="${f3(y1)}" x2="${f3(x2 - dx/d*sh)}" y2="${f3(y2 - dy/d*sh)}"`;
-    const dash = p.pts[i].k === 'd' ? ` stroke-dasharray="${f3(sw*1.6)} ${f3(sw*1.5)}"` : '';
-    g += `<line ${ln} stroke="${hc}" stroke-opacity=".7" stroke-width="${f3(sw*1.9)}" stroke-linecap="round"${dash}/>`
-       + `<line ${ln} stroke="${c}" stroke-width="${f3(sw)}" stroke-linecap="round" marker-end="url(#${mk})"${dash}/>`;
-  }
-  let n = 0;
+  if(pts.length > 1){ const d = 'M' + pts.map(([x, y]) => f3(x) + ' ' + f3(y)).join('L');
+    g += `<path d="${d}" fill="none" stroke="${hc}" stroke-opacity=".55" stroke-width="${f3(sw*1.9)}" stroke-linejoin="round" stroke-linecap="round"/>`
+       + `<path d="${d}" fill="none" stroke="${c}" stroke-width="${f3(sw)}" stroke-linejoin="round" stroke-linecap="round"/>`; }
   pts.forEach(([x, y], i) => {
-    const q = p.pts[i];
-    if(q.k === 'p') n++;
-    if(i === pts.length - 1 && p.end){ g += endMark(x, y, p.end, c, r); return; }
-    if(q.k === 's') g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*0.8)}" fill="#fff" stroke="${c}" stroke-width="${f3(r*0.45)}"/>`;
-    else if(o.num){
-      g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r)}" fill="${c}" stroke="${hc}" stroke-width="${f3(r*0.3)}"/>`;
-      if(q.k === 'p') g += `<text x="${f3(x)}" y="${f3(y + r*0.42)}" font-size="${f3(r*1.2)}" text-anchor="middle" font-weight="800" font-family="${FONT}" fill="${ink(c)}">${n}</text>`;
-    } else g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*0.55)}" fill="${c}" stroke="${hc}" stroke-width="${f3(r*0.2)}"/>`;
+    const last = i === pts.length - 1;
+    if(last && p.end){ g += endMark(x, y, p.end, c, r); return; }
+    if(last && o.live) g += `<circle cx="${f3(x)}" cy="${f3(y)}" r="${f3(r*1.5)}" fill="#fff" fill-opacity=".35"/>`;
+    g += crossMark(x, y, c, r);
   });
   return g + `</g>`;
 }
 function addPass(x, y){
   if(!S.cur) S.cur = {id:uid(), team:S.possTeam, period:S.period, pts:[], t:Date.now()};
-  const k = !S.cur.pts.length ? 's' : (S.dribble ? 'd' : 'p');
-  S.cur.pts.push({x:+x.toFixed(2), y:+y.toFixed(2), k});
-  S.dribble = false; save(); renderAll();
+  S.cur.pts.push({x:+x.toFixed(2), y:+y.toFixed(2), k:'p'});
+  save(); renderAll();
   const [dx, dy] = flip(x, y), r = sp().L*0.012, g = $('#pendingL');
   if(g) g.innerHTML = `<circle class="ping" cx="${f3(dx)}" cy="${f3(dy)}" r="${f3(r*1.8)}" fill="none" stroke="#fff" stroke-width="${f3(r*0.4)}"/>`;
 }
+function openShot(e){
+  const si = shotItem(), t = S.cur.team, pop = $('#popup');
+  pop.innerHTML = `<div class="ph"><b>Tir</b><span class="tchip" style="background:${tc(t)};color:${ink(tc(t))};box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.25)">${esc(S.names[t])}</span></div>
+    <div class="okko"><button class="ok" data-act="pEnd" data-v="ok">${ic('check')}${esc(si ? si.ok : 'Marqué')}</button><button class="ko" data-act="pEnd" data-v="ko">${ic('x')}${esc(si ? si.ko : 'Raté')}</button></div>
+    <button class="pcancel" data-act="pCancel">Annuler (garder la croix)</button>`;
+  $('#backdrop').classList.remove('hidden'); pop.classList.remove('hidden');
+  const r = pop.getBoundingClientRect();
+  let x = e.clientX + 28, y = e.clientY - r.height/2;
+  if(x + r.width > innerWidth - 8) x = e.clientX - 28 - r.width;
+  pop.style.left = Math.max(8, x) + 'px';
+  pop.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
+}
 function endPoss(res){
   const c = S.cur;
-  if(!c || !c.pts.length){ toast('Touche d’abord le terrain (là où le ballon est récupéré)'); return; }
+  if(!c || !c.pts.length){ toast('Touche d’abord le terrain'); return; }
   const last = c.pts[c.pts.length - 1], it = res === 'perte' ? lossItem() : shotItem();
   let pid = null;
   if(it){ pid = uid(); S.points.push({id:pid, x:last.x, y:last.y, team:c.team, item:it.id, res: res === 'perte' ? null : res, player:null, period:c.period, t:Date.now(), poss:c.id}); }
-  S.poss.push({...c, end:res, pid});
-  S.cur = null; S.dribble = false; S.possTeam = other(c.team);
+  const done = {...c, end:res, pid};
+  S.poss.push(done);
+  S.cur = null; S.possTeam = other(c.team); lastTap = null;
   save(); renderAll();
   const si = shotItem(), lab = res === 'ok' ? (si ? si.ok : 'Marqué') : res === 'ko' ? (si ? si.ko : 'Raté') : 'Perte';
-  toast(`${plural(nPass(c), 'passe')} · ${lab} — ballon à ${S.names[S.possTeam]}`);
+  toast(`${lab} · ${plural(nSect(done), 'secteur')} utilisé${nSect(done) > 1 ? 's' : ''} — ballon à ${S.names[S.possTeam]}`);
 }
 function undoPoss(){
-  if(S.cur && S.cur.pts.length){ S.cur.pts.pop(); if(!S.cur.pts.length) S.cur = null; save(); renderAll(); toast('Dernier point supprimé'); return; }
+  lastTap = null;
+  if(S.cur && S.cur.pts.length){ S.cur.pts.pop(); if(!S.cur.pts.length) S.cur = null; save(); renderAll(); toast('Dernière croix supprimée'); return; }
   const last = S.poss.pop();
   if(!last){ toast('Rien à annuler'); return; }
   S.points = S.points.filter(p => p.id !== last.pid);
@@ -450,21 +472,18 @@ function renderPbar(){
   const b = $('#pbar');
   if(!isPoss()){ b.classList.add('hidden'); b.innerHTML = ''; return; }
   b.classList.remove('hidden');
-  const t = S.cur ? S.cur.team : S.possTeam, n = S.cur ? nPass(S.cur) : 0, si = shotItem();
+  const t = S.cur ? S.cur.team : S.possTeam, n = S.cur ? S.cur.pts.length : 0;
   b.innerHTML = `<button class="pteam" style="background:${tc(t)};color:${ink(tc(t))}" data-act="pTeamToggle">${ic('swap')}${esc(S.names[t])}</button>
-    <div class="pcnt"><b>${S.cur ? n : '–'}</b><small>${S.cur ? (n > 1 ? 'passes' : 'passe') : 'touche la récup'}</small></div>
-    <button class="pdrib ${S.dribble ? 'on' : ''}" data-act="dribble">Dribble</button>
-    <button class="pok" data-act="pEnd" data-v="ok">${ic('check')}${esc(si ? si.ok : 'Marqué')}</button>
-    <button class="pko" data-act="pEnd" data-v="ko">${ic('x')}${esc(si ? si.ko : 'Raté')}</button>
-    <button class="ploss" data-act="pEnd" data-v="perte">Perte</button>`;
+    <div class="pcnt"><b>${S.cur ? n : '–'}</b><small>${S.cur ? (n > 1 ? 'croix' : 'croix') : 'touche le terrain'}</small></div>
+    <div class="phint">1 tap = ✕ ballon<br><b>Double-tap = tir</b></div>
+    <button class="ploss" data-act="pEnd" data-v="perte">Perte de balle</button>`;
 }
 function possLayer(){
   const s = sp(), r = s.L*0.012;
-  let h = `<defs>${markerDef('arcA', tc('A'))}${markerDef('arcB', tc('B'))}</defs>`;
-  let list = possFiltered();
+  let h = '', list = possFiltered();
   if(S.mode === 'prof' && !S.view.trails) list = list.slice(-1);
-  list.forEach(p => h += trailSVG(p, {P:flip, r, sw:s.L*0.0035, op: S.cur ? 0.3 : 0.5, num:false, ns:'c'}));
-  if(S.cur) h += trailSVG(S.cur, {P:flip, r:r*1.25, sw:s.L*0.0065, op:1, num:true, ns:'c'});
+  list.forEach(p => h += trailSVG(p, {P:flip, r:r*0.8, sw:s.L*0.003, op: S.cur ? 0.35 : 0.55}));
+  if(S.cur) h += trailSVG(S.cur, {P:flip, r:r*1.2, sw:s.L*0.005, op:1, live:true});
   return h;
 }
 
@@ -550,7 +569,7 @@ function renderTop(){
   const s = sp();
   document.body.classList.toggle('collapsed', !!S.panelHidden);
   const it = itemById(S.sel.item), auto = it && it.auto && S.autoTeam;
-  const modeMini = hasPoss() ? [['poss','Passes'],['actions','Tirs & actions']].map(([k,l]) => `<button class="${S.obsMode===k?'on':''}" style="background:#374151" data-act="obsMode" data-v="${k}">${l}</button>`).join('') : '';
+  const modeMini = hasPoss() ? [['poss','Occupation'],['actions','Tirs & actions']].map(([k,l]) => `<button class="${S.obsMode===k?'on':''}" style="background:#374151" data-act="obsMode" data-v="${k}">${l}</button>`).join('') : '';
   const mini = isPoss() ? `<div class="mini">${modeMini}</div>` : `<div class="mini">` + (modeMini ? modeMini + `<span class="sep"></span>` : '') + S.items.map(i => `<button class="${i.id===S.sel.item?'on':''}" style="background:${i.color}" data-act="selItem" data-v="${i.id}">${esc(i.name)}</button>`).join('')
     + (auto ? '' : `<span class="sep"></span>` + ['A','B'].map(t => `<button class="${S.sel.team===t?'on':''}" style="background:${tc(t)};color:${ink(tc(t))}" data-act="selTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('')) + `</div>`;
   $('#top').innerHTML = `<button class="tb" data-act="togglePanel" title="${S.panelHidden ? 'Afficher le panneau' : 'Masquer le panneau'}">${ic(S.panelHidden ? 'panelOff' : 'panel')}</button>
@@ -666,13 +685,14 @@ function itemLine(x){
 function renderPanel(){ $('#panel').innerHTML = isPoss() ? panelPoss() : S.mode === 'eleve' ? panelEleve() : panelProf(); }
 
 function modeSwitch(){
-  return hasPoss() ? `<div class="chips" style="margin-bottom:4px">` + [['poss','Passes & possessions'],['actions','Tirs & actions']].map(([k,l]) =>
+  return hasPoss() ? `<div class="chips" style="margin-bottom:4px">` + [['poss','Occupation de l’espace'],['actions','Tirs & actions']].map(([k,l]) =>
     `<button class="chip ${S.obsMode===k?'on':''}" data-act="obsMode" data-v="${k}">${l}</button>`).join('') + `</div>` : '';
 }
 function possStatsHTML(list){
   return ['A','B'].map(t => { const st = possStats(list, t);
     return `<div class="st"><div class="hd"><span class="dot" style="background:${tc(t)}"></span>${esc(S.names[t])}</div>` + (st.n
-      ? `${plural(st.n, 'attaque')} · <b>${dec(st.avg)}</b> passe${st.avg >= 2 ? 's' : ''} / attaque<br>Paniers : <b>${pc(st.ok, st.n)}</b> · Pertes : <b>${st.perte}</b>
+      ? `${plural(st.n, 'attaque')} · Paniers : <b>${pc(st.ok, st.n)}</b> · Pertes : <b>${st.perte}</b><br>
+         Secteurs utilisés / attaque : <b>${dec(st.sec)}</b> sur 9<br>Surface moyenne : <b>${Math.round(st.surf)} m²</b> (${st.surfPct} % du demi-terrain)
          <div class="zn">Ballon dans l’axe : <b>${st.nl ? st.lanes[1] + ' %' : '–'}</b><br>Attaques jouées des 2 côtés : <b>${st.wide} %</b></div>`
       : `<span style="color:#9ca3af">aucune attaque terminée</span>`) + `</div>`; }).join('');
 }
@@ -684,18 +704,18 @@ function panelPoss(){
     <div class="lbl">${w} qui attaque</div>
     <div class="teams">` + ['A','B'].map(t => `<button class="${cur===t?'on':''}" style="background:${tc(t)};color:${ink(tc(t))}" data-act="possTeam" data-v="${t}">${esc(S.names[t])}</button>`).join('') + `</div>
     <div class="note">Change tout seul après chaque fin d’attaque. Rebond offensif : retouche l’équipe.</div>
-    <div class="st" style="margin-top:10px">1. <b>1er tap</b> : où le ballon est récupéré<br>2. <b>1 tap par passe</b> : là où le ballon est reçu<br>3. <b>Dribble</b> (en bas) puis tap : déplacement sans passe<br>4. Fin : <b>${esc((shotItem()||{}).ok||'Marqué')} / ${esc((shotItem()||{}).ko||'Raté')} / Perte</b> en bas, placé au dernier point</div>
+    <div class="st" style="margin-top:10px">1. <b>1 tap</b> = une croix ✕ là où va le ballon avant de changer de secteur (passe ou dribble, peu importe)<br>2. <b>Double-tap</b> à l’endroit du tir → ${esc((shotItem()||{}).ok||'Marqué')} ou ${esc((shotItem()||{}).ko||'Raté')}<br>3. <b>Perte de balle</b> : bouton violet en bas</div>
     ${eleve ? '' : `<div class="row"><button class="btn" data-act="swap">${ic('swap')}Changer de côté</button><button class="btn" data-act="period">${ic('plus')}Période ${S.period}</button></div>`}</section>`;
   if(!eleve){
-    h += `<section><h3>Affichage</h3><div class="chips">${tog('trails','Tous les trajets')}${tog('lanes','Couloirs')}</div>
-      <div class="lbl" style="font-size:12px">○ récupération · ● ${esc((shotItem()||{}).ok||'marqué').toLowerCase()} · ✕ raté · ◆ perte<br>trait plein = passe · pointillé = dribble</div></section>
+    h += `<section><h3>Affichage</h3><div class="chips">${tog('trails','Toutes les attaques')}${tog('lanes','Couloirs')}</div>
+      <div class="lbl" style="font-size:12px">✕ ballon · ● ${esc((shotItem()||{}).ok||'marqué').toLowerCase()} · ○ ${esc((shotItem()||{}).ko||'raté').toLowerCase()} · ◆ perte</div></section>
       <section><h3>Filtres</h3><div class="lbl">${w}</div><div class="chips">${chip('team','all','Tous')}${['A','B'].map(t => chip('team', t, esc(S.names[t]), `<span class="dot" style="background:${tc(t)}"></span>`)).join('')}</div>
       ${S.period > 1 ? `<div class="lbl">Période</div><div class="chips">${chip('period','all','Toutes')}${Array.from({length:S.period}, (_,i) => chip('period', String(i+1), String(i+1))).join('')}</div>` : ''}</section>`;
   }
   h += `<section><h3>Statistiques</h3>${possStatsHTML(list)}</section>`;
   const last = S.poss.slice(-6).reverse();
   if(last.length && !eleve) h += `<section><h3>Dernières attaques</h3>` + last.map(p =>
-    `<div class="li"><span class="dot" style="background:${tc(p.team)}"></span><span class="t">${esc(S.names[p.team])} · ${plural(nPass(p), 'passe')} · ${p.end==='ok'?'✓':p.end==='ko'?'✗':'perte'}</span><button data-act="delPoss" data-v="${p.id}">✕</button></div>`).join('') + `</section>`;
+    `<div class="li"><span class="dot" style="background:${tc(p.team)}"></span><span class="t">${esc(S.names[p.team])} · ${plural(nSect(p), 'secteur')} · ${p.end==='ok'?'✓':p.end==='ko'?'✗':'perte'}</span><button data-act="delPoss" data-v="${p.id}">✕</button></div>`).join('') + `</section>`;
   h += eleve ? `<button class="btn" style="width:100%;padding:14px;font-size:16px" data-act="undo">${ic('undo')}Annuler le dernier</button>
       <div class="row"><button class="btn" data-act="toProf">${ic('lock')}Mode prof</button></div>` : panelFoot();
   return h;
@@ -779,7 +799,10 @@ $('#court').addEventListener('click', e => {
   const p = pt.matrixTransform(svg.getScreenCTM().inverse()), s = sp();
   if(p.x < -s.m || p.x > s.L + s.m || p.y < -s.m || p.y > s.W + s.m) return;
   const [cx, cy] = flip(p.x, p.y);
-  if(isPoss()){ addPass(cx, cy); return; }
+  if(isPoss()){
+    const now = Date.now();
+    if(lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 55 && S.cur && S.cur.pts.length){ lastTap = null; openShot(e); return; }
+    lastTap = {t:now, x:e.clientX, y:e.clientY}; addPass(cx, cy); return; }
   const it = itemById(S.sel.item);
   if(!it){ toast('Choisis d’abord une action'); return; }
   const team = (it.auto && S.autoTeam) ? (cx >= s.L/2 ? 'A' : 'B') : S.sel.team;
@@ -824,7 +847,7 @@ $('#backdrop').addEventListener('click', closePopup);
 
 /* ---------------- Capture d'écran ---------------- */
 function filterDesc(){
-  if(isPoss()){ const v = S.view, parts = ['Passes & trajets'];
+  if(isPoss()){ const v = S.view, parts = ['Occupation de l’espace'];
     if(S.mode === 'prof' && v.team !== 'all') parts.push(word() + ' : ' + S.names[v.team]);
     if(S.mode === 'prof' && v.period !== 'all') parts.push('Période ' + v.period);
     return parts.join(' · '); }
@@ -851,7 +874,7 @@ async function capture(){
     const pts = filtered(), lines = [], pl = isPoss() ? possFiltered() : null;
     ['A','B'].forEach(t => { if(S.mode==='prof' && S.view.team!=='all' && S.view.team!==t) return;
       if(pl){ const st = possStats(pl, t);
-        lines.push({t, txt: `${S.names[t]} : ` + (st.n ? `${plural(st.n, 'attaque')}  ·  ${dec(st.avg)} passes / attaque  ·  paniers ${pc(st.ok, st.n)}  ·  ${st.lanes[1]} % dans l’axe  ·  ${plural(st.perte, 'perte')}` : 'aucune attaque')});
+        lines.push({t, txt: `${S.names[t]} : ` + (st.n ? `${plural(st.n, 'attaque')}  ·  ${dec(st.sec)} secteurs / attaque  ·  surface ${Math.round(st.surf)} m²  ·  ${st.lanes[1]} % dans l’axe  ·  paniers ${pc(st.ok, st.n)}  ·  ${plural(st.perte, 'perte')}` : 'aucune attaque')});
         return; }
       const st = teamStats(pts, t);
       let txt = `${S.names[t]} : ` + (st.items.length ? st.items.map(x => x.it.outcome ? `${x.it.name} ${x.n} (✓ ${x.ok}, ✗ ${x.ko} = ${pc(x.ok, x.ok+x.ko)})` : `${x.it.name} ${x.n}`).join('  ·  ') : 'aucune action');
@@ -870,7 +893,7 @@ async function capture(){
     c.font = `28px ${FONT}`;
     lines.forEach(l => { c.fillStyle = tc(l.t); c.fillRect(32, y-22, 26, 26); c.strokeStyle = '#9ca3af'; c.lineWidth = 2; c.strokeRect(32, y-22, 26, 26); c.fillStyle = '#111827';
       c.fillText(l.txt, 72, y, W - 100); y += lh; });
-    c.fillStyle = '#6b7280'; c.font = `24px ${FONT}`; c.fillText(isPoss() ? '○ récupération    ● panier    ✕ raté    ◆ perte    trait plein = passe, pointillé = dribble' : '● réussi    ✕ raté    ▲ action sans résultat', 32, y + 6);
+    c.fillStyle = '#6b7280'; c.font = `24px ${FONT}`; c.fillText(isPoss() ? '✕ position du ballon    ● panier    ○ raté    ◆ perte' : '● réussi    ✕ raté    ▲ action sans résultat', 32, y + 6);
     cv.toBlob(b => showCap(b ? URL.createObjectURL(b) : cv.toDataURL('image/png'), b), 'image/png');
   }catch(err){
     showCap(src, null);
@@ -912,7 +935,7 @@ function showEnd(){
 function renderEnd(){
   const ch = (k, v, label) => `<button class="chip ${String(endSel[k])===String(v)?'on':''}" data-act="endSel" data-k="${k}" data-v="${v}">${label}</button>`;
   $('#end').innerHTML = `<div class="endbar">
-      <div class="grp"><span class="lbl">Terrain :</span>${hasPoss() ? ch('item','POSS','Passes & trajets') : ''}${S.items.map(i => ch('item', i.id, `<span class="dot" style="background:${i.color}"></span>${esc(i.name)}`)).join('')}${ch('item','all','Toutes')}</div>
+      <div class="grp"><span class="lbl">Terrain :</span>${hasPoss() ? ch('item','POSS','Occupation de l’espace') : ''}${S.items.map(i => ch('item', i.id, `<span class="dot" style="background:${i.color}"></span>${esc(i.name)}`)).join('')}${ch('item','all','Toutes')}</div>
       ${endSel.item === 'POSS' ? `<div class="grp"><span class="lbl">Vue :</span>${ch('court','full','Terrain entier')}${ch('court','half','Demi-terrain')}</div>` : ''}
       ${S.period > 1 ? `<div class="grp"><span class="lbl">Période :</span>${ch('period','all','Tout le match')}${Array.from({length:S.period}, (_,i) => ch('period', i+1, String(i+1))).join('')}</div>` : ''}
       <div class="acts">
@@ -926,17 +949,17 @@ function possPoster(){
   const all = S.poss.filter(p => p.end && (endSel.period==='all' || p.period === +endSel.period));
   const m = s.m, vbW = half ? s.W + 2*m : s.L + 2*m, vbH = half ? s.L/2 + m : s.W + 2*m;
   const cw = half ? Math.min(colW - 160, 500) : colW - 40, chh = cw * vbH / vbW;
-  const yBand = 118, yK = yBand + 72, yC = yK + 140, yL = yC + chh + 22, yB = yL + 100, bH = 180, bTop = 84;
+  const yBand = 118, yK = yBand + 72, yC = yK + 160, yL = yC + chh + 22, yB = yL + 100, bH = 180, bTop = 104;
   const H = Math.round(yB + bTop + bH + 66 + pad);
   const T = (x, y, txt, sz, o='') => `<text x="${f3(x)}" y="${f3(y)}" font-size="${sz}" ${o}>${esc(txt)}</text>`;
   const si = shotItem(), okL = (si ? si.ok : 'Marqué').toLowerCase(), koL = (si ? si.ko : 'Raté').toLowerCase();
   let g = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${FONT}" preserveAspectRatio="xMidYMid meet">
     <rect width="${W}" height="${H}" fill="#f8fafc"/>
     <g transform="translate(${pad},26) scale(2.6)" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[s.icon]}</g>
-    ${T(pad+80, 62, 'Circulation du ballon', 44, 'font-weight="800" fill="#111827"')}
+    ${T(pad+80, 62, 'Occupation de l’espace en attaque', 44, 'font-weight="800" fill="#111827"')}
     ${T(pad+80, 98, `${s.name} · ${S.names.A} vs ${S.names.B} · ${new Date().toLocaleDateString('fr-FR')}${endSel.period!=='all' ? ' · période ' + endSel.period : ''}`, 24, 'fill="#4b5563"')}
-    ${T(W-pad, 62, 'Passes & trajets de chaque attaque', 24, 'text-anchor="end" font-weight="700" fill="#0f766e"')}
-    ${T(W-pad, 98, `○ récupération   ● ${okL}   ✕ ${koL}   ◆ perte   - - dribble`, 20, 'text-anchor="end" fill="#6b7280"')}`;
+    ${T(W-pad, 62, 'Où va le ballon pendant chaque attaque', 24, 'text-anchor="end" font-weight="700" fill="#0f766e"')}
+    ${T(W-pad, 98, `✕ ballon   ● ${okL}   ○ ${koL}   ◆ perte`, 20, 'text-anchor="end" fill="#6b7280"')}`;
   ['A','B'].forEach((t, k) => {
     const x0 = pad + k*(colW + pad), col = tc(t), cc = chartCol(col), light = cc + '55', list = all.filter(p => p.team === t), st = possStats(all, t);
     g += `<rect x="${x0}" y="${yBand}" width="${colW}" height="${H - yBand - pad}" rx="22" fill="#fff" stroke="#e5e7eb" stroke-width="2"/>
@@ -944,13 +967,14 @@ function possPoster(){
       ${T(x0+28, yBand+44, S.names[t], 32, `font-weight="800" fill="${ink(col)}"`)}
       ${T(x0+colW-28, yBand+44, plural(st.n, 'attaque'), 22, `text-anchor="end" fill="${ink(col)}" opacity=".9"`)}`;
     // chiffres clés
-    const tiles = [[st.n, 'Attaques', '#111827'], [st.n ? dec(st.avg) : '–', 'Passes / attaque', '#111827'], [pc(st.ok, st.n), 'Paniers', '#111827'],
-      [st.nl ? st.lanes[1] + ' %' : '–', 'Dans l’axe', st.lanes[1] >= 50 ? '#ea580c' : '#111827'], [st.perte, 'Pertes', '#7c3aed']];
+    const tiles = [[st.n ? dec(st.sec) + '/9' : '–', 'Secteurs / attaque', '#111827'], [st.n ? Math.round(st.surf) + ' m²' : '–', `Surface (${st.surfPct} %)`, '#111827'],
+      [st.nl ? st.lanes[1] + ' %' : '–', 'Dans l’axe', st.lanes[1] >= 50 ? '#ea580c' : '#111827'], [pc(st.ok, st.n), 'Paniers', '#111827'], [st.perte, 'Pertes', '#7c3aed']];
     const tw = (colW - 32) / tiles.length;
     tiles.forEach(([val, lab, fc], i) => { const cx = x0 + 16 + tw*i + tw/2;
-      g += T(cx, yK + 62, val, 46, `text-anchor="middle" font-weight="800" fill="${fc}"`) + T(cx, yK + 96, lab, 19, 'text-anchor="middle" fill="#6b7280"');
-      if(i) g += `<line x1="${x0+16+tw*i}" y1="${yK+14}" x2="${x0+16+tw*i}" y2="${yK+110}" stroke="#eef0f3" stroke-width="2"/>`; });
+      g += T(cx, yK + 60, val, 40, `text-anchor="middle" font-weight="800" fill="${fc}"`) + T(cx, yK + 92, lab, 18, 'text-anchor="middle" fill="#6b7280"');
+      if(i) g += `<line x1="${x0+16+tw*i}" y1="${yK+14}" x2="${x0+16+tw*i}" y2="${yK+106}" stroke="#eef0f3" stroke-width="2"/>`; });
     // terrain
+    g += T(x0 + colW/2, yC - 12, 'Demi-terrain d’attaque découpé en 9 secteurs : % des positions du ballon', 18, 'text-anchor="middle" fill="#6b7280"');
     g += possCourt(t, list, half, x0 + (colW - cw)/2, yC, cw, chh);
     if(!list.length) g += T(x0 + colW/2, yC + chh/2, 'Aucune attaque notée', 28, 'text-anchor="middle" font-weight="700" fill="#fff" stroke="#111827" stroke-width="4" paint-order="stroke"');
     // couloirs
@@ -963,13 +987,13 @@ function possPoster(){
         if(ww > 40) g += T(xx + ww/2, yL + 66, ww > 150 ? `${lab} ${st.lanes[i]} %` : `${st.lanes[i]} %`, 21, `text-anchor="middle" font-weight="800" fill="${tcol}"`);
         xx += ww; });
     } else g += T(bx, yL + 66, 'Pas assez de données', 22, 'fill="#9ca3af"');
-    // réussite selon le nombre de passes
-    g += T(bx, yB + 22, 'Réussite selon le nombre de passes', 20, 'font-weight="700" fill="#374151"');
+    // réussite selon le nombre de secteurs utilisés
+    g += T(bx, yB + 22, 'Réussite selon le nombre de secteurs utilisés', 20, 'font-weight="700" fill="#374151"');
     const lx = x0 + colW - 28;
-    g += `<rect x="${lx-300}" y="${yB+7}" width="18" height="18" rx="4" fill="${cc}"/>` + T(lx-276, yB+22, okL, 18, 'fill="#374151"')
-      + `<rect x="${lx-185}" y="${yB+7}" width="18" height="18" rx="4" fill="${light}"/>` + T(lx-161, yB+22, koL, 18, 'fill="#374151"')
-      + `<rect x="${lx-80}" y="${yB+7}" width="18" height="18" rx="4" fill="#c4b5fd"/>` + T(lx-56, yB+22, 'perte', 18, 'fill="#374151"')
-      + T(bx, yB + 46, '% = part des attaques terminées par un panier', 16, 'fill="#9ca3af"');
+    g += `<rect x="${lx-300}" y="${yB+38}" width="18" height="18" rx="4" fill="${cc}"/>` + T(lx-276, yB+53, okL, 18, 'fill="#374151"')
+      + `<rect x="${lx-185}" y="${yB+38}" width="18" height="18" rx="4" fill="${light}"/>` + T(lx-161, yB+53, koL, 18, 'fill="#374151"')
+      + `<rect x="${lx-80}" y="${yB+38}" width="18" height="18" rx="4" fill="#c4b5fd"/>` + T(lx-56, yB+53, 'perte', 18, 'fill="#374151"')
+      + T(bx, yB + 52, '% = part des attaques terminées par un panier', 16, 'fill="#9ca3af"');
     const cwB = bw / 5, base = yB + bTop + bH;
     st.bk.forEach((b, i) => {
       const cx = bx + cwB*i + cwB/2, w2 = cwB*0.6, x = cx - w2/2;
@@ -977,12 +1001,12 @@ function possPoster(){
         [[b.ok, cc], [b.ko, light], [b.perte, '#c4b5fd']].forEach(([v, fc]) => { if(!v) return; const hh = bH * v / b.n; y -= hh;
           g += `<rect x="${f3(x)}" y="${f3(y)}" width="${f3(w2)}" height="${f3(hh)}" fill="${fc}"/>`; });
         g += `<rect x="${f3(x)}" y="${base-bH}" width="${f3(w2)}" height="${bH}" fill="none" stroke="#e5e7eb" stroke-width="2"/>`;
-        g += T(cx, base - bH - 12, Math.round(b.ok/b.n*100) + ' %', 26, 'text-anchor="middle" font-weight="800" fill="#111827"');
+        g += T(cx, base - bH - 10, Math.round(b.ok/b.n*100) + ' %', 26, 'text-anchor="middle" font-weight="800" fill="#111827"');
       } else {
         g += `<rect x="${f3(x)}" y="${base-bH}" width="${f3(w2)}" height="${bH}" fill="none" stroke="#e5e7eb" stroke-width="2" stroke-dasharray="8 6"/>`
-          + T(cx, base - bH - 12, '–', 26, 'text-anchor="middle" fill="#9ca3af"');
+          + T(cx, base - bH - 10, '–', 26, 'text-anchor="middle" fill="#9ca3af"');
       }
-      g += T(cx, base + 28, `${b.lab} passe${b.lab === '0' || b.lab === '1' ? '' : 's'}`, 20, 'text-anchor="middle" font-weight="700" fill="#111827"')
+      g += T(cx, base + 28, `${b.lab} secteur${i ? 's' : ''}`, 20, 'text-anchor="middle" font-weight="700" fill="#111827"')
         + T(cx, base + 52, plural(b.n, 'attaque'), 17, 'text-anchor="middle" fill="#6b7280"');
     });
   });
@@ -998,12 +1022,21 @@ function possCourt(t, list, half, X, Y, w, h){
   } else { mat = ''; P = (x, y) => [x, y]; vb = [-m, -m, L + 2*m, Wd + 2*m]; }
   const k = vb[2] / w;
   let g = `<svg x="${f3(X)}" y="${f3(Y)}" width="${f3(w)}" height="${f3(h)}" viewBox="${vb.map(f3).join(' ')}" overflow="hidden">
-    <defs>${markerDef('arp' + t + t, tc(t))}</defs>
     <rect x="${f3(vb[0])}" y="${f3(vb[1])}" width="${f3(vb[2])}" height="${f3(vb[3])}" fill="${s.out}"/>
-    <g ${mat ? `transform="${mat}"` : ''}><rect x="0" y="0" width="${L}" height="${Wd}" fill="${s.floor}"/>${s.draw(s)}${lanesSVG(k*2)}</g>`;
-  const op = list.length > 20 ? 0.5 : list.length > 10 ? 0.65 : 0.85;
-  list.forEach(p => g += trailSVG(p, {P, r:k*8, sw:k*3, op, num:false, ns:'p' + t}));
-  return g + `</svg>`;
+    <g ${mat ? `transform="${mat}"` : ''}><rect x="0" y="0" width="${L}" height="${Wd}" fill="${s.floor}"/>${s.draw(s)}</g>`;
+  // secteurs du demi-terrain d'attaque
+  const {cells, tot, mx} = cellCounts(t, list.flatMap(p => p.pts), true), labels = [];
+  cells.forEach(c => {
+    const [u1, v1] = P(c.x, c.y), [u2, v2] = P(c.x + c.w, c.y + c.h);
+    const u = Math.min(u1, u2), v = Math.min(v1, v2), cw = Math.abs(u2 - u1), chh = Math.abs(v2 - v1);
+    g += `<rect x="${f3(u)}" y="${f3(v)}" width="${f3(cw)}" height="${f3(chh)}" fill="#f97316" fill-opacity="${tot && c.n ? (0.1 + 0.55*c.n/mx).toFixed(2) : 0}" stroke="#fff" stroke-opacity=".8" stroke-width="${f3(k*1.5)}" stroke-dasharray="${f3(k*6)} ${f3(k*5)}"/>`;
+    const fs = k*24;
+    labels.push(c.n ? `<text x="${f3(u + cw/2)}" y="${f3(v + chh/2 + fs*0.35)}" font-size="${f3(fs)}" text-anchor="middle" font-weight="800" fill="#111827" stroke="#fff" stroke-width="${f3(fs*0.18)}" paint-order="stroke">${Math.round(c.n/tot*100)}%</text>`
+      : `<text x="${f3(u + cw/2)}" y="${f3(v + chh/2 + fs*0.3)}" font-size="${f3(fs*0.8)}" text-anchor="middle" font-weight="700" fill="#fff" opacity=".7">vide</text>`);
+  });
+  const op = list.length > 20 ? 0.45 : list.length > 10 ? 0.6 : 0.8;
+  list.forEach(p => g += trailSVG(p, {P, r:k*8, sw:k*2.5, op}));
+  return g + labels.join('') + `</svg>`;
 }
 function posterSVG(){
   if(endSel.item === 'POSS') return possPoster();
@@ -1171,8 +1204,7 @@ const ACT = {
   obsMode(b, v){ S.obsMode = v; if(v === 'poss') S.view.player = 'all'; save(); renderAll(); },
   possTeam(b, v){ S.possTeam = v; if(S.cur) S.cur.team = v; save(); renderAll(); },
   pTeamToggle(){ const t = other(S.cur ? S.cur.team : S.possTeam); ACT.possTeam(null, t); },
-  dribble(){ S.dribble = !S.dribble; renderPbar(); if(S.dribble) toast('Prochain tap = dribble (pas une passe)'); },
-  pEnd(b, v){ endPoss(v); },
+    pEnd(b, v){ closePopup(); endPoss(v); },
   delPoss(b, v){ const p = S.poss.find(q => q.id === v); if(!p) return; S.poss = S.poss.filter(q => q.id !== v); S.points = S.points.filter(q => q.id !== p.pid); save(); renderAll(); },
   pLoss(){ const li = lossItem(); if(!li || !pending) return; pending.item = li.id; pending.res = null; const p = pending; closePopup(); addPoint(p); },
   // affichage
